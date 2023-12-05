@@ -1,2 +1,2 @@
 # deepSOC
-deep Stochastic Optimal Control for Bond Trading
+Deep Stochastic Optimal Control for Bond Trading
