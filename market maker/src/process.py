@@ -115,14 +115,6 @@ class RFQ(StochasticProcess):
         self.Q = specific_config["Q"]
 
     def sample(self, num_sample) -> tuple:
-        dw_sample = (
-            np.random.normal(size=[num_sample, self.num_time_interval])
-            * self.sqrt_delta_t
-        )
-
-        x_sample = np.zeros([num_sample, self.num_time_interval + 1])
-        x_sample[:, 0] = np.ones(num_sample) * self.x_init
-
         select_Q = np.ones(
             [num_sample, self.n_liqiudity_state**2, self.n_liqiudity_state**2]
         ) * np.expand_dims(np.exp(self.Q * self.delta_t), axis=0)
@@ -140,10 +132,19 @@ class RFQ(StochasticProcess):
         ask_lamda = np.array([[self.lamdas[x // 2] for x in y] for y in lamda_process])
         bid_lamda = np.array([[self.lamdas[x % 2] for x in y] for y in lamda_process])
 
+        dw_sample = (
+            np.random.normal(size=[num_sample, self.num_time_interval])
+            * self.sqrt_delta_t
+        )
+
+        x_sample = np.zeros([num_sample, self.num_time_interval + 1])
+        x_sample[:, 0] = np.ones(num_sample) * self.x_init
+
         for i in range(self.num_time_interval):
             x_sample[:, i + 1] = (
                 x_sample[:, i]
                 + (ask_lamda[:, i] - bid_lamda[:, i]) * self.k * self.delta_t
                 + self.sigma * dw_sample[:, i]
             )
+
         return ask_lamda, bid_lamda, x_sample

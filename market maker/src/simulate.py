@@ -1,5 +1,4 @@
 import numpy as np
-from scipy.stats import expon
 
 
 def simulate_markov_batch(Q, initial_states, times, num_simulations):
@@ -17,7 +16,7 @@ def simulate_markov_batch(Q, initial_states, times, num_simulations):
             end_time = times[i]
             while current_time < end_time:
                 rate = -Q[state, state]
-                time_to_next = expon.rvs(scale=1 / rate)
+                time_to_next = np.random.exponential(1 / rate)
 
                 current_time += time_to_next
                 if current_time < end_time:
