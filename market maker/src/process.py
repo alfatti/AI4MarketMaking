@@ -33,13 +33,13 @@ class StochasticProcess:
         self.y_init = None
 
     def __str__(self):
-        # Get the dictionary of object attributes
-        obj_dict = vars(self)
+        attributes_str = (
+            "{\n"
+            + ", \n\n".join(f"{key}: \n{value}" for key, value in vars(self).items())
+            + "\n}"
+        )
 
-        # Format the attributes into a string
-        attributes_str = ", ".join(f"{key}={value}" for key, value in obj_dict.items())
-
-        return f"MyClass({attributes_str})"
+        return f"{self.__class__.__name__}:\n{attributes_str}"
 
     def sample(self, num_sample: int) -> Tensor:
         """
