@@ -96,41 +96,30 @@ class StochasticProcess:
 
 
 class RFQ(StochasticProcess):
-    """
-    Args:
-    eqn_config (dict): dictionary containing PDE configuration parameters
-    """
-
     def __init__(self, basic_config, specific_config):
-        super(RFQ, self).__init__(basic_config)
+        super().__init__(basic_config)
 
         self.n_liqiudity_state = specific_config["nls"]
+
+        # initial mid-price for bond 1 in sector 1 from Table 3, page 23 in the Bergault paper
         self.x_init = np.ones(self.dim) * specific_config["init"]
-        self.lamdas = specific_config["lamdas"]
+
         self.lamda_initial_state = specific_config["init_state"]  # integer
+
+        # sigma and kappa from Table 2, page 23 in the Bergault paper
         self.sigma = specific_config["sigma"]
         self.k = specific_config["k"]
+
+        # lambda and Q values from Table 1, page 20 in the Bergault paper
+        self.lamdas = specific_config["lamdas"]
         self.Q = specific_config["Q"]
 
     def sample(self, num_sample) -> tuple:
-        """
-        Forward samples the SDE.
-
-        Parameters
-        ----------
-        num_sample : int
-            Number of samples to generate
-
-        Returns
-        -------
-        tuple
-            [0]: (num_sample, dim, num_time_interval) representing the dw_sample
-            [1]: (num_sample, dim, num_time_interval+1) representing the x_sample
-        """
         dw_sample = (
             np.random.normal(size=[num_sample, self.num_time_interval])
             * self.sqrt_delta_t
         )
+
         x_sample = np.zeros([num_sample, self.num_time_interval + 1])
         x_sample[:, 0] = np.ones(num_sample) * self.x_init
 
@@ -140,12 +129,14 @@ class RFQ(StochasticProcess):
         select_lamda = np.ones(
             [num_sample, self.n_liqiudity_state**2, 2]
         ) * np.expand_dims(two_combinations(self.lamdas), axis=0)
+
         lamda_process = simulate_markov_batch(
             self.Q,
             self.lamda_initial_state,
             np.array([i * self.delta_t for i in range(self.num_time_interval)]),
             num_sample,
         )
+
         ask_lamda = np.array([[self.lamdas[x // 2] for x in y] for y in lamda_process])
         bid_lamda = np.array([[self.lamdas[x % 2] for x in y] for y in lamda_process])
 
@@ -156,47 +147,3 @@ class RFQ(StochasticProcess):
                 + self.sigma * dw_sample[:, i]
             )
         return ask_lamda, bid_lamda, x_sample
-
-    def r_u(self, t, x, y, z) -> torch.Tensor:
-        """
-        Interest rate in the PDE.
-
-        Args:
-        t (float): current time
-        x (torch.Tensor): tensor of size [batch_size, dim] containing space coordinates
-        y (torch.Tensor): tensor of size [batch_size, 1] containing function values
-        z (torch.Tensor): tensor of size [batch_size, dim] containing gradients
-
-        Returns:
-        torch.Tensor: tensor of size [batch_size, 1] containing generator values
-        """
-
-        return 0
-
-    def h_z(self, t, x, y, z) -> torch.Tensor:
-        """
-        Function to compute $h^T Z$ in the PDE.
-
-        Args:
-        t (float): current time
-        x (torch.Tensor): tensor of size [batch_size, dim] containing space coordinates
-        y (torch.Tensor): tensor of size [batch_size, 1] containing function value
-        z (torch.Tensor): tensor of size [batch_size, dim] containing gradients
-
-        Returns:
-        torch.Tensor: tensor of size [batch_size, 1] containing H(z)
-        """
-        return 0
-
-    def terminal(self, x) -> torch.Tensor:
-        """
-        Terminal condition of the PDE.
-
-        Args:
-        t (float): current time
-        x (torch.Tensor): tensor of size [batch_size, dim] containing space coordinates
-
-        Returns:
-        torch.Tensor: tensor of size [batch_size, 1] containing terminal values
-        """
-        return 0
