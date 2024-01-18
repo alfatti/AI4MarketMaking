@@ -29,6 +29,6 @@ class RLNet(nn.Module):
             x = layer(x)
             if self.is_first == False:
                 x = self.bn[i](x)
-            x = F.relu(x)
+            x = F.tanh(x)
         out = self.layers[-1](x)
         return out
