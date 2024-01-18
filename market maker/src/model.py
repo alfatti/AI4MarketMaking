@@ -5,6 +5,7 @@ import torch.nn as nn
 class RLNet(nn.Module):
     def __init__(self, input_dim, output_dim, hidden_dim, is_first=False):
         super(RLNet, self).__init__()
+
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hidden_dim = hidden_dim

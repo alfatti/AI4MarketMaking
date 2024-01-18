@@ -122,6 +122,7 @@ class RFQ(StochasticProcess):
             [num_sample, self.n_liqiudity_state**2, 2]
         ) * np.expand_dims(two_combinations(self.lamdas), axis=0)
 
+        # 4 states
         lamda_process = simulate_markov_batch(
             self.Q,
             self.lamda_initial_state,
@@ -129,6 +130,7 @@ class RFQ(StochasticProcess):
             num_sample,
         )
 
+        # 0: 0-0, 1: 0-1, 2: 1-0, 3: 1-1
         ask_lamda = np.array([[self.lamdas[x // 2] for x in y] for y in lamda_process])
         bid_lamda = np.array([[self.lamdas[x % 2] for x in y] for y in lamda_process])
 
