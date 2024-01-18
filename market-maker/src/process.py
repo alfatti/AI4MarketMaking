@@ -123,12 +123,19 @@ class RFQ(StochasticProcess):
         ) * np.expand_dims(two_combinations(self.lamdas), axis=0)
 
         # 4 states
-        lamda_process = simulate_markov_batch(
+        # lamda_process = simulate_markov_batch(
+        #     self.Q,
+        #     self.lamda_initial_state,
+        #     np.array([i * self.delta_t for i in range(self.num_time_interval)]),
+        #     num_sample,
+        # )
+        lamda_process = simulate_markov_batch_1(
             self.Q,
             self.lamda_initial_state,
-            np.array([i * self.delta_t for i in range(self.num_time_interval)]),
-            num_sample,
-        )
+            np.array([i*self.delta_t for i in range(self.num_time_interval)]),
+            num_sample ,
+            self.delta_t)
+
 
         # 0: 0-0, 1: 0-1, 2: 1-0, 3: 1-1
         ask_lamda = np.array([[self.lamdas[x // 2] for x in y] for y in lamda_process])
