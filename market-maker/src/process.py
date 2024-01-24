@@ -5,7 +5,9 @@ import torch.nn.functional as F
 from torch import Tensor
 
 from .utils import two_combinations
+from .simulate import simulate_markov_batch_1
 from .simulate import simulate_markov_batch
+
 
 
 class StochasticProcess:
@@ -156,4 +158,4 @@ class RFQ(StochasticProcess):
                 + self.sigma * dw_sample[:, i]
             )
 
-        return ask_lamda, bid_lamda, x_sample
+        return ask_lamda, bid_lamda,  x_sample , lamda_process
