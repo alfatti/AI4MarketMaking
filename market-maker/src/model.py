@@ -36,4 +36,5 @@ class RL_Net(nn.Module):
               x = self.bn[i](x)
             x = F.tanh(x)
         out = self.layers[-1](x)
+        out = F.relu(out)
         return out
