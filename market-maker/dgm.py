@@ -2,6 +2,48 @@ import torch
 import torch.nn as nn
 
 
+def loss(
+    θ: nn.Module,
+    q: float,
+    t: float,
+    T: float,
+    Q: torch.tensor,
+    κ: float,
+    γ: float,
+    σ: float,
+    z: float,
+    α_a: torch.tensor,
+    α_b: torch.tensor,
+    λ_a: float,
+    λ_b: float,
+) -> float:
+
+    dt = torch.autograd.grad(θ(t, q), t)
+
+    Q_sum = 0
+    for j_a in range(4):
+        for j_b in range(4):
+            Q_sum += Q[j_a][j_b] * θ(t, q)
+
+    return (
+        dt
+        + κ * (λ_a - λ_b) * q
+        - 1 / 2 * γ * σ**2 * q**2
+        + Q_sum
+        + z * (λ_b * α_b[0] + λ_a * α_a[0])
+        + (
+            λ_b * α_b[1] * (θ(t, q) - θ(t, q + z))
+            + λ_a * α_a[1] * (θ(t, q) - θ(t, q - z))
+        )
+        + (1 / (2 * z))
+        * (
+            λ_b * α_b[2] * (θ(t, q) - θ(t, q + z)) ** 2
+            + λ_a * α_a[2] * (θ(t, q) - θ(t, q - z)) ** 2
+        )
+        + (torch.exp(θ(T, q)) - 1)
+    )
+
+
 class NeuralBox(nn.Module):
     def __init__(self, indim=100, outdim=50):
         super().__init__()
@@ -38,6 +80,22 @@ class DGM(nn.Module):
         dim=1,
         layersize=10,
     ):
+        """
+        We are minimizing the following function (page 28 of the paper):
+
+        0 = ∂_t θ(t, q) + κ(λ_a - λ_b) q - 1 / 2 * γ σ^2 q^2
+            + ∑ Q + θ + z(λ α_b0 + λ α_a0)
+            ...
+
+        Also, θ(T, q) should be 0 for all q.
+
+        Ahmad wants a standalone loss function that he can use to create the
+        NN.
+
+        - m_a and m_b = 4 (the dimensions of Q)
+        - ∂θ - compute using PyTorch
+        - ...
+        """
         super().__init__()
         self.dim = dim
         self.layer1 = nn.Linear(self.dim, layersize)
@@ -50,6 +108,7 @@ class DGM(nn.Module):
         self.activation = nn.Tanh()
 
     def forward(self, y):
+        # model inputs are t and Q
         s1 = self.layer1(y)
         s1 = self.activation(s1)
         s2 = self.module1(y, s1)
