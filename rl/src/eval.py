@@ -8,9 +8,10 @@ from IPython.display import clear_output
 def evaluate_pricing_agent(env, model, n=500):
     δ_b = []
     δ_a = []
-    cumulative_rewards = []
-
+    cumulative_returns = []
+    rewards = []
     for _ in range(n):
+        reward_run = []
         state, _ = env.reset()
 
         done = False
@@ -22,26 +23,35 @@ def evaluate_pricing_agent(env, model, n=500):
 
             δ_b.append(action[0])
             δ_a.append(action[1])
-        cumulative_rewards.append(np.cumsum(env.v))
+            reward_run.append(reward)
+
+        cumulative_returns.append(np.cumsum(env.v))
+        rewards.append(reward_run)
 
     clear_output(True)
-    plt.figure(figsize=(12, 4))
+    plt.figure(figsize=(15, 4))
 
-    plt.subplot(1, 2, 1)
+    plt.subplot(1, 3, 1)
     plt.hist(δ_b, density=True, label="δ_b", bins=10, alpha=0.5, color="green")
     plt.hist(δ_a, density=True, label="δ_a", bins=10, alpha=0.5, color="red")
-    plt.xlim((-1.1, 1.1))
+    plt.xlim((-0.21, 0.21))
     plt.legend()
 
-    cumulative_rewards = np.array(cumulative_rewards)
+    cumulative_returns = np.array(cumulative_returns)
 
-    x = np.arange(cumulative_rewards.shape[1])
-    mean = np.mean(cumulative_rewards, axis=0)
-    std_dev = np.std(cumulative_rewards, axis=0)
+    x = np.arange(cumulative_returns.shape[1])
+    mean = np.mean(cumulative_returns, axis=0)
+    std_dev = np.std(cumulative_returns, axis=0)
 
-    plt.subplot(1, 2, 2)
+    plt.subplot(1, 3, 2)
     plt.fill_between(x, mean - std_dev, mean + std_dev, alpha=0.5)
     plt.plot(x, mean, label=f"Average Cumulative Return: ${mean[-1]:,.2f}")
+    plt.legend()
+
+    rewards = np.array(rewards)
+
+    plt.subplot(1, 3, 3)
+    plt.plot(rewards[-1, :], label=f"Reward Sample")
     plt.legend()
     plt.show()
 

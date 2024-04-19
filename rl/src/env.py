@@ -30,15 +30,16 @@ class RFQEnvironment(gym.Env):
 
         # δ_b, δ_a
         self.action_space = spaces.Box(
-            low=-1,
-            high=1,
+            low=-0.2,
+            high=0.2,
             shape=(2,),
         )
 
-        # λ_b, λ_a, p, q
+        # λ_b, λ_a
         self.observation_space = spaces.Box(
-            low=np.array([-10, -10, 0, -np.inf], dtype=np.float32),
-            high=np.array([10, 10, np.inf, np.inf], dtype=np.float32),
+            low=-10,
+            high=10,
+            shape=(2,),
         )
 
         self.rfq_price_sampler = RFQPriceSampler(
@@ -86,8 +87,6 @@ class RFQEnvironment(gym.Env):
             [
                 self.λ_b[self.t],
                 self.λ_a[self.t],
-                self.prices[self.t],
-                self.q[self.t],
             ],
             dtype=np.float32,
         )
