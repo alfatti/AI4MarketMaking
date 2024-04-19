@@ -3,12 +3,12 @@ import numpy as np
 
 from stable_baselines3.common.callbacks import BaseCallback
 from .eval import evaluate_pricing_agent
-from .env import RFQEnvironment
+from .env import RFQEnvironmentNormalized
 from termcolor import cprint
 
 
 def env_callback():
-    return RFQEnvironment(
+    return RFQEnvironmentNormalized(
         np.array([10.83, 73.03]) / 10,
         np.array(
             [

@@ -35,7 +35,7 @@ def evaluate_pricing_agent(env, model, n=500):
     plt.subplot(1, 3, 1)
     plt.hist(δ_b, label="δ_b", bins=20, alpha=0.5, color="green")
     plt.hist(δ_a, label="δ_a", bins=20, alpha=0.5, color="red")
-    plt.xlim((-0.17, 0.21))
+    plt.xlim((-1.2, 1.2))
     plt.legend()
 
     cumulative_returns = np.array(cumulative_returns)
@@ -53,6 +53,7 @@ def evaluate_pricing_agent(env, model, n=500):
 
     plt.subplot(1, 3, 3)
     plt.plot(rewards[-1, :], label=f"Reward Sample")
+    plt.plot(np.cumsum(rewards[-1, :]), label=f"Cumulative Reward Sample")
     plt.legend()
     plt.show()
 
@@ -121,7 +122,7 @@ def visualize_simulation(env, model, sleep=1, clear=True):
         axs[1][1].plot(δ_a, label="δ_a", color="r", alpha=0.4)
         axs[1][1].legend()
         axs[1][1].set_xlim(0, env.rfq_price_sampler.num_time_interval)
-        axs[1][1].set_ylim(-0.17, 0.21)
+        axs[1][1].set_ylim(-1.2, 1.2)
 
         axs[1][2].plot(env.v[: env.t], label="Portfolio Value", alpha=0.7)
         axs[1][2].legend()

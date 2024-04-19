@@ -10,6 +10,8 @@ class RFQEnvironment(gym.Env):
         self,
         λs,
         Q,
+        δ_min=-0.16,  # gives a 99.8% chance of winning the trade
+        δ_max=0.2,  # gives a 99.8% chance of losing the trade
         dim=1,
         total_time=0.25,
         num_time_interval=90,
@@ -26,10 +28,13 @@ class RFQEnvironment(gym.Env):
     ):
         super(RFQEnvironment, self).__init__()
 
+        self.δ_min = δ_min
+        self.δ_max = δ_max
+
         # δ_b, δ_a
         self.action_space = spaces.Box(
-            low=-0.16,  # gives a 99.8% chance of winning the trade
-            high=0.2,  # gives a 99.8% chance of losing the trade
+            low=self.δ_min,
+            high=self.δ_max,
             shape=(2,),
         )
 
@@ -130,12 +135,36 @@ class RFQEnvironment(gym.Env):
             self.v[self.t] - bid_cost + ask_revenue + (next_value - previous_value)
         )
 
+        reward = self.u[self.t]
         self.t += 1
 
         return (
             self.obs(),
-            self.u[self.t],
+            reward,
             self.t == (self.rfq_price_sampler.num_time_interval - 1),
             False,
             {},
+        )
+
+
+class RFQEnvironmentNormalized(RFQEnvironment):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.action_space = spaces.Box(low=-1, high=1, shape=(2,))
+
+    def convert_value(self, input_value):
+        low = -1
+        high = 1
+
+        # Map input value to the range [0, 1]
+        scaled_value = (input_value - low) / (high - low)
+
+        return self.δ_min + scaled_value * (
+            self.δ_max - self.δ_min
+        )  # Map scaled value to the new range [δ_min, δ_max]
+
+    def step(self, action):
+        return super().step(
+            [self.convert_value(action[0]), self.convert_value(action[1])]
         )
