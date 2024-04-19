@@ -56,59 +56,76 @@ def evaluate_pricing_agent(env, model, n=500):
     plt.show()
 
 
-def visualize_simulation(env, model):
+def visualize_simulation(env, model, sleep=1, clear=True):
     state, _ = env.reset()
 
     done = False
 
     δ_b = []
     δ_a = []
+    rewards = []
 
     while not done:
         action, _ = model.predict(state)
-
-        δ_b.append(action[0])
-        δ_a.append(action[1])
-
         next_state, reward, done, _, _ = env.step(action)
         state = next_state
 
-        # Update y-data for each subplot (e.g., simulate new data)
-        clear_output(True)
-        _, axs = plt.subplots(2, 2, figsize=(16, 8))
+        δ_b.append(action[0])
+        δ_a.append(action[1])
+        rewards.append(reward)
 
-        axs[0][0].plot(env.v[: env.t], label="Reward")
+        if clear:
+            clear_output(True)
+
+        _, axs = plt.subplots(2, 3, figsize=(16, 8))
+
+        axs[0][0].plot(env.q[: env.t], label="Quantity", alpha=0.7)
         axs[0][0].legend()
         axs[0][0].set_xlim(0, env.rfq_price_sampler.num_time_interval)
 
-        axs[0][1].plot(env.prices[: env.t], color="b", label="Price")
+        axs[0][1].plot(env.prices[: env.t], color="b", label="Price", alpha=0.7)
         axs[0][1].plot(
-            env.prices[: env.t] - np.array(δ_b), color="g", label="Bid Quote"
+            env.prices[: env.t] - np.array(δ_b)[: env.t],
+            color="g",
+            label="Bid Quote",
+            alpha=0.7,
         )
         axs[0][1].plot(
-            env.prices[: env.t] + np.array(δ_a), color="r", label="Ask Quote"
+            env.prices[: env.t] + np.array(δ_a)[: env.t],
+            color="r",
+            label="Ask Quote",
+            alpha=0.7,
         )
         axs[0][1].legend()
         axs[0][1].set_xlim(0, env.rfq_price_sampler.num_time_interval)
 
-        axs[1][0].plot(env.λ_a[: env.t], label="λ_a")
-        axs[1][0].plot(env.λ_b[: env.t], label="λ_b")
-        axs[1][0].legend()
-        axs[1][0].set_xlim(0, env.rfq_price_sampler.num_time_interval)
-        axs[1][0].set_ylim(0, 8)
+        axs[0][2].plot(rewards, label="Reward", alpha=0.7)
+        axs[0][2].plot(np.cumsum(rewards), label="Cumulative Rewards", alpha=0.7)
+        axs[0][2].legend()
+        axs[0][2].set_xlim(0, env.rfq_price_sampler.num_time_interval)
 
-        axs[1][1].plot((env.λ_a - env.λ_b)[: env.t], label="λ_a - λ_b")
-        axs[1][1].hlines(
+        axs[1][0].plot((env.λ_a - env.λ_b)[: env.t], label="λ_a - λ_b", alpha=0.7)
+        axs[1][0].hlines(
             [0],
             xmin=0,
             xmax=env.rfq_price_sampler.num_time_interval,
             linestyles="--",
             alpha=0.2,
         )
+        axs[1][0].legend()
+        axs[1][0].set_xlim(0, env.rfq_price_sampler.num_time_interval)
+        axs[1][0].set_ylim(-8, 8)
+
+        axs[1][1].plot(δ_b, label="δ_b", color="g", alpha=0.4)
+        axs[1][1].plot(δ_a, label="δ_a", color="r", alpha=0.4)
         axs[1][1].legend()
         axs[1][1].set_xlim(0, env.rfq_price_sampler.num_time_interval)
-        axs[1][1].set_ylim(-8, 8)
+        axs[1][1].set_ylim(-0.001, 0.051)
+
+        axs[1][2].plot(env.v[: env.t], label="Portfolio Value", alpha=0.7)
+        axs[1][2].legend()
+        axs[1][2].set_xlim(0, env.rfq_price_sampler.num_time_interval)
 
         plt.show()
 
-        time.sleep(1)
+        time.sleep(sleep)
