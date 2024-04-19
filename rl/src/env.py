@@ -1,6 +1,5 @@
 import gymnasium as gym
 import numpy as np
-import matplotlib.pyplot as plt
 
 from gymnasium import spaces
 from src.simulate import RFQPriceSampler
@@ -24,22 +23,21 @@ class RFQEnvironment(gym.Env):
         β=3.1,
         γ=0.0005,
         z=1,
-        reward_setting="value",
     ):
         super(RFQEnvironment, self).__init__()
 
         # δ_b, δ_a
         self.action_space = spaces.Box(
-            low=-0.2,
-            high=0.2,
+            low=-0.16,  # gives a 99.8% chance of winning the trade
+            high=0.2,  # gives a 99.8% chance of losing the trade
             shape=(2,),
         )
 
-        # λ_b, λ_a
+        # λ_b, λ_a, q, t
         self.observation_space = spaces.Box(
-            low=-10,
-            high=10,
-            shape=(2,),
+            low=-np.inf,
+            high=np.inf,
+            shape=(4,),
         )
 
         self.rfq_price_sampler = RFQPriceSampler(
@@ -64,16 +62,10 @@ class RFQEnvironment(gym.Env):
         self.γ = γ
         self.z = z
 
-        if reward_setting not in ["value", "utility", "stable"]:
-            raise Exception(
-                f"Reward setting must be one of {['value', 'utility', 'stable']}."
-            )
+        self.λ_b = None  # λ_b is the number of people that are willing to sell to us (we are buying)
+        self.λ_a = None  # λ_a is the number of people that are trying to buy bonds from us (we are selling)
 
-        self.reward_setting = reward_setting
-
-        self.λ_b, self.λ_a, self.prices, self.q, self.t = (
-            None,
-            None,
+        self.prices, self.q, self.t = (
             None,
             None,
             None,
@@ -87,6 +79,8 @@ class RFQEnvironment(gym.Env):
             [
                 self.λ_b[self.t],
                 self.λ_a[self.t],
+                self.q[self.t],
+                self.t / self.rfq_price_sampler.num_time_interval,
             ],
             dtype=np.float32,
         )
@@ -136,56 +130,12 @@ class RFQEnvironment(gym.Env):
             self.v[self.t] - bid_cost + ask_revenue + (next_value - previous_value)
         )
 
-        reward = None
-
-        if self.reward_setting == "value":
-            reward = self.v[self.t + 1]
-        elif self.reward_setting == "stable":
-            reward = self.v[self.t + 1] - np.std(self.v[: self.t + 2])
-        elif self.reward_setting == "utility":
-            reward = self.u[self.t]
-        else:
-            raise Exception("Reward function not set correctly.")
-
         self.t += 1
 
         return (
             self.obs(),
-            reward,
+            self.u[self.t],
             self.t == (self.rfq_price_sampler.num_time_interval - 1),
             False,
             {},
         )
-
-    def render(self):
-        fig = plt.figure()
-        gs = fig.add_gridspec(2, hspace=0)
-        axs = gs.subplots(sharex=True, sharey=False)
-
-        axs[0].plot(self.v[: self.t], label="Reward", color="blue")
-        axs[0].legend()
-        axs[0].set_title("Reward & Cumulative Reward (1 Episode)")
-
-        cumulative = np.cumsum(self.v[: self.t])
-        axs[1].plot(
-            cumulative,
-            color="darkgreen",
-            label=f"Cumulative Reward ({round(cumulative[-1], 3)})",
-        )
-        axs[1].hlines(
-            [cumulative[-1]],
-            xmin=0,
-            xmax=self.t - 1,
-            color="darkgreen",
-            linestyle="--",
-            alpha=0.5,
-        )
-        axs[1].legend()
-
-        for ax in axs.flat:
-            ax.set(xlabel="Iteration", ylabel="$")
-
-        for ax in axs.flat:
-            ax.label_outer()
-
-        plt.show()

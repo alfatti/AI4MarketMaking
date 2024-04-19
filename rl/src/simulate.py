@@ -1,7 +1,4 @@
-import torch
 import numpy as np
-
-from .utils import two_combinations
 
 
 class RFQPriceSampler:

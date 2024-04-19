@@ -10,6 +10,7 @@ def evaluate_pricing_agent(env, model, n=500):
     δ_a = []
     cumulative_returns = []
     rewards = []
+
     for _ in range(n):
         reward_run = []
         state, _ = env.reset()
@@ -17,7 +18,7 @@ def evaluate_pricing_agent(env, model, n=500):
         done = False
 
         while not done:
-            action, _ = model.predict(state)
+            action, _ = model.predict(state, deterministic=True)
             next_state, reward, done, _, _ = env.step(action)
             state = next_state
 
@@ -32,9 +33,9 @@ def evaluate_pricing_agent(env, model, n=500):
     plt.figure(figsize=(15, 4))
 
     plt.subplot(1, 3, 1)
-    plt.hist(δ_b, density=True, label="δ_b", bins=10, alpha=0.5, color="green")
-    plt.hist(δ_a, density=True, label="δ_a", bins=10, alpha=0.5, color="red")
-    plt.xlim((-0.21, 0.21))
+    plt.hist(δ_b, label="δ_b", bins=20, alpha=0.5, color="green")
+    plt.hist(δ_a, label="δ_a", bins=20, alpha=0.5, color="red")
+    plt.xlim((-0.17, 0.21))
     plt.legend()
 
     cumulative_returns = np.array(cumulative_returns)
@@ -66,7 +67,7 @@ def visualize_simulation(env, model, sleep=1, clear=True):
     rewards = []
 
     while not done:
-        action, _ = model.predict(state)
+        action, _ = model.predict(state, deterministic=True)
         next_state, reward, done, _, _ = env.step(action)
         state = next_state
 
@@ -120,7 +121,7 @@ def visualize_simulation(env, model, sleep=1, clear=True):
         axs[1][1].plot(δ_a, label="δ_a", color="r", alpha=0.4)
         axs[1][1].legend()
         axs[1][1].set_xlim(0, env.rfq_price_sampler.num_time_interval)
-        axs[1][1].set_ylim(-0.001, 0.051)
+        axs[1][1].set_ylim(-0.17, 0.21)
 
         axs[1][2].plot(env.v[: env.t], label="Portfolio Value", alpha=0.7)
         axs[1][2].legend()
