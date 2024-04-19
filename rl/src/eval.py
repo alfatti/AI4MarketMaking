@@ -24,6 +24,7 @@ def evaluate_pricing_agent(env, model, n=500):
             δ_a.append(action[1])
         cumulative_rewards.append(np.cumsum(env.v))
 
+    clear_output(True)
     plt.figure(figsize=(12, 4))
 
     plt.subplot(1, 2, 1)

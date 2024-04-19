@@ -140,7 +140,7 @@ class RFQEnvironment(gym.Env):
         reward = None
 
         if self.reward_setting == "value":
-            reward = self.v[self.t + 1] - self.v[self.t]
+            reward = self.v[self.t + 1]
         elif self.reward_setting == "stable":
             reward = self.v[self.t + 1] - np.std(self.v[: self.t + 2])
         elif self.reward_setting == "utility":
