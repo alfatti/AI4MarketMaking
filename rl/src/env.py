@@ -1,9 +1,8 @@
-import gym
+import gymnasium as gym
 import numpy as np
 import matplotlib.pyplot as plt
-import random
 
-from gym import spaces
+from gymnasium import spaces
 from src.simulate import RFQPriceSampler
 
 
@@ -31,8 +30,9 @@ class RFQEnvironment(gym.Env):
 
         # δ_b, δ_a
         self.action_space = spaces.Box(
-            low=np.array([0, 0], dtype=np.float32),
-            high=np.array([0.2, 0.2], dtype=np.float32),
+            low=-1,
+            high=1,
+            shape=(2,),
         )
 
         # λ_b, λ_a, p, q
@@ -92,7 +92,7 @@ class RFQEnvironment(gym.Env):
             dtype=np.float32,
         )
 
-    def reset(self):
+    def reset(self, seed=None):
         self.t = 0
         (
             self.λ_b,
@@ -105,7 +105,7 @@ class RFQEnvironment(gym.Env):
         self.v = np.zeros(self.rfq_price_sampler.num_time_interval)
         self.u = np.zeros(self.rfq_price_sampler.num_time_interval)
 
-        return self.obs(), _
+        return self.obs(), {}
 
     def step(self, action):
         n_bid = (
@@ -153,9 +153,9 @@ class RFQEnvironment(gym.Env):
         return (
             self.obs(),
             reward,
-            self.t == self.rfq_price_sampler.num_time_interval - 1,
-            None,
-            None,
+            self.t == (self.rfq_price_sampler.num_time_interval - 1),
+            False,
+            {},
         )
 
     def render(self):

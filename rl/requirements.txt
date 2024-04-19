@@ -1,0 +1,5 @@
+torch
+stable-baselines3[extra]
+numpy
+ipykernel
+gym
