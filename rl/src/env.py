@@ -136,6 +136,8 @@ class RFQEnvironment(gym.Env):
         )
 
         reward = self.u[self.t]
+        reward = self.v[self.t + 1] - self.v[self.t]
+
         self.t += 1
 
         return (

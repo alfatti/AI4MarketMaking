@@ -10,6 +10,7 @@ def evaluate_pricing_agent(env, model, n=500, clear=True):
     δ_a = []
     cumulative_returns = []
     rewards = []
+    cumulative_rewards = []
 
     for _ in range(n):
         reward_run = []
@@ -28,16 +29,21 @@ def evaluate_pricing_agent(env, model, n=500, clear=True):
 
         cumulative_returns.append(np.cumsum(env.v))
         rewards.append(reward_run)
+        cumulative_rewards.append(np.cumsum(reward_run))
 
     if clear:
         clear_output(True)
 
     plt.figure(figsize=(15, 4))
 
+    combined = δ_b + δ_a
+    xmin = min(min(combined) - 0.1, -1.2)
+    xmax = max(max(combined) + 0.1, 1.2)
+
     plt.subplot(1, 4, 1)
     plt.hist(δ_b, label="δ_b", bins=20, alpha=0.5, color="green")
     plt.hist(δ_a, label="δ_a", bins=20, alpha=0.5, color="red")
-    plt.xlim((-1.2, 1.2))
+    plt.xlim((xmin, xmax))
     plt.legend()
 
     cumulative_returns = np.array(cumulative_returns)
@@ -58,9 +64,11 @@ def evaluate_pricing_agent(env, model, n=500, clear=True):
     plt.plot(np.cumsum(rewards[-1, :]), label=f"Cumulative Reward Sample")
     plt.legend()
 
-    x = np.arange(rewards.shape[1])
-    mean = np.mean(rewards, axis=0)
-    std_dev = np.std(rewards, axis=0)
+    cumulative_rewards = np.array(cumulative_rewards)
+
+    x = np.arange(cumulative_rewards.shape[1])
+    mean = np.mean(cumulative_rewards, axis=0)
+    std_dev = np.std(cumulative_rewards, axis=0)
 
     plt.subplot(1, 4, 4)
     plt.fill_between(x, mean - std_dev, mean + std_dev, alpha=0.5)
