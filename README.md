@@ -1,2 +1,2 @@
-# deepSOC
-Deep Stochastic Optimal Control for Bond Trading
+
+Various works on AI for OTC market making
