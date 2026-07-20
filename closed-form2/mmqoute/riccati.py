@@ -124,13 +124,14 @@ def solve_riccati(
         Th = np.real_if_close(tanhm(Ahat * (T - t)))
         A_path[i] = 0.5 * Dp_ih @ Ahat @ Th @ Dp_ih
 
-    # B(t): backward Euler on B' = 2A(V_- + D_- diag(A)) + 2A D_+ B, B(T) = 0
+    # B(t): backward integration of B' = 2A(V_- + D_- diag(A)) + 2A D_+ B, B(T) = 0
+    # Backward in time: B(t) = B(t+dt) - dt * B'(t+dt).
     B_path = np.zeros((len(t_grid), d))
     dt = T / n_steps
     for i in range(len(t_grid) - 2, -1, -1):
         A_next = A_path[i + 1]
         rhs = 2.0 * A_next @ (Vm + Dm @ np.diag(A_next)) + 2.0 * A_next @ Dp @ B_path[i + 1]
-        B_path[i] = B_path[i + 1] + dt * rhs  # backward in time: B(t) = B(t+dt) + dt*B'
+        B_path[i] = B_path[i + 1] - dt * rhs
 
     # Ergodic limits (Prop. 3)
     Gamma = Dp_ih @ _sym_sqrt(Dp_h @ Sigma @ Dp_h) @ Dp_ih
