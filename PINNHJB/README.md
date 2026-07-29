@@ -107,5 +107,5 @@ head with its own terminal enforcement.
 Phase 2: replicate the paper's d=2 benchmark (sigma = 1.2/0.6, rho = 0.5, gamma = 8e-6,
 T = 7, logistic lam=30/alpha=0.7/beta=30, 4 Gamma-atoms, Q = 75000/300000) against their
 FD numbers. Phase 3: scale d with the Section-4 Monte-Carlo correction term as pointwise
-ground truth. Deferred: continuous-nu quadrature, RAR loop wiring, permutation-symmetric
+ground truth. Deferred: continuous-nu quadrature, RAR loop (wired; two rounds per training run), permutation-symmetric
 encoders, matrix-free CG (only needed once N ~ P), Howard-iteration regression variant.
