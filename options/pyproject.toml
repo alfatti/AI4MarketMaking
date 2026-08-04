@@ -1,0 +1,17 @@
+[project]
+name = "optmm"
+version = "0.1.0"
+description = "Option market making: BBG (2020) framework — reduced 2D, exact lattice, and structure-blind PINN solvers"
+requires-python = ">=3.11"
+dependencies = ["jax>=0.4.30", "numpy", "scipy"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["slow: long-running (PINN training, large sims)"]
