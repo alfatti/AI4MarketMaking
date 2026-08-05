@@ -1,0 +1,377 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+
+\newcommand{\Vpi}{\mathcal{V}^{\pi}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\plotph}[2]{%
+\begin{figure}[htbp]\centering
+\framebox[0.92\linewidth]{\parbox[c][10.5em][c]{0.86\linewidth}{\centering
+\textbf{[Plot placeholder]}\\[0.4em] #2}}
+\caption{#1}
+\end{figure}}
+
+\setlength{\parskip}{0.35em}
+\setlength{\parindent}{0pt}
+
+\title{\vspace{-1.2em}\Large\textbf{Quoting as Control:\\
+Inventory-Aware Market Making for Option Books,\\
+and the Solvers That Make It Practical}\vspace{-0.4em}}
+\author{\normalsize Prototype summary for the structured equity derivatives desk}
+\date{\normalsize \today}
+
+\begin{document}
+\maketitle
+\vspace{-1.6em}
+
+\section*{Executive summary}
+
+Every RFQ answer is a control decision: the skew trades fill probability
+against inventory risk, limits, and carry. Desks encode this today in
+layered heuristics --- vol marks plus manual inventory adjustments plus
+per-line overrides --- which are individually sensible and jointly
+inconsistent. A stochastic-control formulation encodes the trade-off
+\emph{once}: a single value function generates, simultaneously and
+consistently, the bid/ask skew for every line, the urgency of unwinding,
+the fade into risk limits, and the hedge policy. The formulation is not the
+obstacle; it has been known for over a decade. The obstacle has been
+\emph{solving} it under realistic desk conditions: per-line position
+limits, Greeks that move with spot and vol, exposures whose sign flips.
+
+We built a prototype that closes that gap, organised around a principle a
+model-risk function will recognise: \textbf{exact references wherever they
+exist, and pre-validated closure tests where they do not.} Classical
+solvers (an exact inventory-lattice method, and the known two-dimensional
+reduction) provide ground truth in stylised regimes; a neural HJB solver
+(a physics-informed network, PINN) is trained on the \emph{same equation}
+and must reproduce those references before it is trusted one step beyond
+them. Representative prototype results, all reproducible from the
+accompanying repository at laptop scale:
+
+\begin{itemize}\itemsep0.15em
+\item Quote-level agreement with exact solutions at the
+  \textbf{0.02-cent} level (median), on books where exact solutions exist.
+\item \textbf{Structure discovery}: told nothing about the book's risk
+  geometry, the solver recovers it (gradient alignment with the vega
+  vector $=1.0000$ to four decimals; quotes collapse across hundreds of
+  gross-inventory compositions with the same net risk).
+\item In the regime with per-line limits --- where the textbook reduction
+  provably fails --- the solver matches the exact lattice on \emph{every}
+  admissible inventory state.
+\item At the frontier (spot-dependent, sign-flipping Greeks; no exact
+  reference at any size), a martingale closure identity, itself
+  pre-validated against exact cases, certifies the answer on simulated
+  paths to within one standard error.
+\end{itemize}
+
+We propose a contained pilot: calibrate client fill curves from the desk's
+own RFQ logs, shadow-quote a chosen sub-book, and evaluate against the
+incumbent skew logic under common random numbers.
+
+\section{Quoting is a control problem}
+
+An RFQ arrives for line $i$, size $z_i$; the desk answers mid $\pm\,
+\delta$. The economics per line and side are a fill-probability curve
+$\Lambda_i(\delta)$ (wider skew, better margin, fewer fills), an inventory
+$q$ that the fill moves, running risk on that inventory, and possibly a
+carry when the desk's real-world view of vol differs from the pricing
+measure. The control formulation maximises the risk-adjusted running P\&L,
+\begin{equation}
+\sup_{\delta}\;\E\!\int_0^T\!\Big[\;
+\underbrace{\textstyle\sum_{i,\pm} z_i\,\delta_i^{\pm}\,
+\Lambda_i(\delta_i^{\pm})}_{\text{spread capture}}
+\;+\;\underbrace{c(t,x)^{\!\top} q}_{\text{carry}}
+\;-\;\underbrace{\tfrac{\gamma}{2}\,q^{\top}\Sigma(t,x)\,q}_{\text{inventory risk}}
+\;\Big]\,dt ,
+\label{eq:obj}
+\end{equation}
+subject to the desk's admissible-inventory set (risk limits). Dynamic
+programming turns \eqref{eq:obj} into a value function $v(t,x,q)$, and ---
+this is the part traders should like --- every optimal quote decomposes
+into two auditable pieces:
+\begin{equation}
+\delta_i^{*}=\arg\max_{\delta}\ \Lambda_i(\delta)\,(\delta-p_i),
+\qquad
+p_i \;=\; \frac{v(t,x,q)-v(t,x,q\mp z_i e_i)}{z_i}.
+\label{eq:quote}
+\end{equation}
+$p_i$ is the \emph{internal transfer price} of the trade --- what this
+marginal risk is worth to \emph{this} book, in \emph{this} state, given
+the limits --- and the remainder is the optimal margin against the
+client's fill curve. Skews for every line, both sides, all inventory
+states, come from one object; nothing is hand-set line by line, and every
+number traces back to parameters observable in RFQ logs.
+
+\section{A worked formulation: a single-underlying option book}
+
+As a motivating example we adopt the single-underlying setting of
+Baldacci, Bergault and Gu\'eant \cite{bbg}: one stock with stochastic
+(Heston) volatility under both the real-world and pricing measures, a book
+of listed calls, continuous delta-hedging so that \emph{vega} is the
+residual risk, and logistic fill curves calibrated in implied-vol space
+(at mid, a request fills with probability $\approx 33\%$; one vol point
+through mid, $\approx 69\%$ --- two numbers a desk can estimate directly
+from hit/miss logs). Their stylised case adds two simplifications: Greeks
+frozen at inception, and a single aggregate-vega risk band
+$|\Vpi|\le\bar V$ with $\Vpi=\sum_i q_i\mathcal V_i$. Under exactly those
+two assumptions the whole book collapses to a two-dimensional problem in
+$(t,\nu,\Vpi)$ --- elegant, and (as we exploit below) a source of exact
+ground truth.
+
+Two results from this formulation are worth a director's attention on
+their own:
+
+\textbf{The hedge enters quoting through one number.} For the family of
+delta hedges indexed by a tilt $c$ (from delta-neutral, $c=0$, to the
+minimum-variance ``smile-adjusted'' delta, $c=\rho$), the entire quoting
+problem changes only through the scalar $m(c)=1-2\rho c+c^2$ multiplying
+the vega penalty. Our simulator confirms this to within $1\%$ with the
+variance-minimising tilt recovered at $c^*=-0.502$ against a true
+$\rho=-0.5$. A measured corollary: at intraday horizons the value gap
+between running the smart hedge and simply rescaling the risk penalty is
+\emph{pennies} --- the desk's hedge-style debate, at this horizon, is one
+coefficient.
+
+\textbf{Every internal consistency we could test, holds.} The prototype's
+sign conventions were validated in one shot by a value identity ---
+simulated risk-adjusted P\&L under the model's own optimal policy equals
+the value function to $+0.65$ standard errors --- and the model's known
+symmetry limits hold to machine precision ($10^{-16}$ relative).
+
+\section{What breaks under realistic desk conditions}
+
+Real books violate both stylisations, and the violations are precisely
+where a structured desk lives.
+
+\textbf{Per-line limits kill the reduction.} Desks do not run one
+aggregate Greek band; they run position limits per line. The moment the
+admissible set is a box, the value provably ceases to be a function of net
+vega alone --- we \emph{measure} the failure: on a three-line book with
+box limits, exact values at identical net vega differ by up to
+$\sim$76{,}000\,EUR across gross compositions. Aggregation is not an
+approximation here; it is the wrong object.
+
+\textbf{Greeks move, and can change sign.} A structured book's vega is
+spot- and vol-dependent, and near barriers or autocall triggers it flips
+sign. Our minimal laboratory instance is a tight call spread: long-vega
+below the strikes, short-vega above, with the flip inside the day's
+trading range. Any quoting logic keyed to a frozen risk snapshot skews the
+\emph{wrong way} on the far side of the flip.
+
+\textbf{The honest dimensionality diagnosis.} With unit-size RFQs the
+inventory lives on an integer lattice, so there is no resolution curse ---
+only \emph{cardinality}: exact solving costs
+$\prod_i(2\bar n_i+1)$ states. Table~\ref{tab:ladder} is the measured
+cost curve of the exact method on our prototype hardware. At three to five
+lines the exact lattice is cheap and \emph{should be used}; the case for a
+trained surrogate begins where this product makes the exact method
+unaffordable --- and, crucially, the surrogate can then still be
+\emph{held to} the exact method on the sizes where both exist.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{ccccc}
+\toprule
+Lines $N$ & Lattice states & Solve time (CPU) & Time-refinement error &
+$v(0,\nu_0,0)$ \\
+\midrule
+3 & 1{,}573  & 23\,s & $8\times10^{-4}$\,EUR & 39{,}872\,EUR \\
+4 & 5{,}103  & 37\,s & $7\times10^{-3}$\,EUR & 49{,}311\,EUR \\
+5 & 16{,}807 & 82\,s & $1\times10^{-2}$\,EUR & 54{,}872\,EUR \\
+\bottomrule
+\end{tabular}
+\caption{The exact inventory-lattice solver under per-line limits: the
+only curse is cardinality, and it is measured, not asserted.}
+\label{tab:ladder}
+\end{table}
+
+\section{The solver architecture: a ladder of references}
+
+The prototype runs three solver families on \emph{one} shared definition
+of the control problem, arranged so that each is validated by the
+strongest instrument available to it:
+
+\begin{enumerate}\itemsep0.2em
+\item \textbf{Exact-in-inventory lattice} (any admissible set): the ground
+  truth wherever its cardinality is affordable.
+\item \textbf{The two-dimensional reduction} (stylised regime): exact in
+  principle; we additionally constructed book configurations on which its
+  numerical solution is \emph{exact to machine precision}, letting us
+  separate its interpolation error (quantified: 153\,EUR down to
+  3.5\,EUR as its grid refines) from everything else.
+\item \textbf{A structure-blind neural HJB solver (PINN)}: a network
+  trained to zero the Bellman equation's residual over the full state,
+  given the raw state only --- no aggregate-risk feature, no hint of the
+  book's geometry. Identical architecture and training protocol in every
+  regime; only the equation changes.
+\end{enumerate}
+
+The point of the ladder is transferable trust: the neural solver earns it
+against references it did not need, so that it retains it where no
+reference exists.
+
+\plotph{Stylised regime, full 22-dimensional state. Left: the network's
+values at 3{,}000 random gross inventories collapse onto the exact
+one-dimensional net-vega curve it was never told about. Right: gradient
+alignment with the vega vector (median $|\cos|=1.0000$).}
+{\emph{Stage-1 value collapse and structure discovery}\\
+(notebook: \texttt{stage1\_pinn\_train\_and\_analysis})}
+
+\plotph{Per-line-limit regime, three lines: network quotes (markers)
+against the exact lattice (lines) along an inventory axis. Median quote
+error 0.016 cents; validated on all 891 admissible states.}
+{\emph{Stage-2 quotes vs.\ exact lattice}\\
+(notebook: \texttt{stage2\_stage3\_ladder\_and\_frontier}, \S2)}
+
+Curated validation results are collected in Table~\ref{tab:val}. Two
+deserve emphasis. First, the \emph{discovery} result: at the quote level,
+the network's answers at a fixed net risk agree across hundreds of
+different gross compositions to $\pm 0.014$ cents --- it has learned that
+they are the same book. Second, the stage-2 result is a \emph{true} error
+against an \emph{exact} reference on \emph{every} admissible state ---
+not a comparison of two approximations.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Check & Reference & Result \\
+\midrule
+Quote optimisation (semi-closed form) & brute force & FOC
+  $<10^{-14}$ rel. \\
+Pricing engine (Heston, all Greeks by AD) & 50-digit arithmetic &
+  $\le 2\times10^{-13}$ \\
+Simulated P\&L $=$ value function & exact solve & gap $+0.65$ s.e. \\
+Hedge layer $m(c)$, variance parabola & closed form & $\le 1\%$;
+  vertex $-0.502$ vs.\ $-0.5$ \\
+Stage-1 discovery (no risk feature given) & exact reduction &
+  $|\cos|$ median $1.0000$ \\
+Stage-2 PINN values, 891 admissible states & exact lattice & median
+  1.7\,kEUR on 40\,kEUR scale \\
+Stage-2 PINN quotes & exact lattice & median 0.016\,c, max 0.06\,c \\
+Stage-3 closure (no reference exists) & Dynkin identity on paths &
+  gap $\le 1.1$ s.e. \\
+\bottomrule
+\end{tabular}
+\caption{Curated validation summary (representative prototype numbers,
+laptop-scale training budgets; full log in the repository's
+\texttt{VALIDATION.md}).}
+\label{tab:val}
+\end{table}
+
+\section{The frontier, demonstrated}
+
+The regime the desk actually cares about --- live Greeks
+$\mathcal V_i(t,S,\nu)$, spot in the state, per-line limits, a
+sign-flipping exposure --- admits no exact solution at \emph{any} book
+size. The prototype demonstrates it on three vanilla calls plus the tight
+call spread, with three validation instruments:
+
+\textbf{(i) The machinery must not invent structure.} Run the full
+spot-aware solver on a problem whose Greeks are secretly frozen: the exact
+answer is then spot-independent and known. The network --- with spot as an
+input and nothing telling it spot is irrelevant --- reproduces the known
+answer and exhibits \emph{emergent} spot-independence (value variation of
+$\sim$650\,EUR across a $\pm6\%$ spot band, on a 268\,kEUR scale).
+
+\textbf{(ii) The policy respects the sign flip.} At a long-spread
+inventory, the model's quote skew on the spread \emph{reverses} as spot
+crosses the vega flip --- the desk-level signature that quoting is keyed
+to live risk, not a snapshot.
+
+\plotph{Left: the spread's per-contract vega across spot, flipping sign
+inside the traded band. Right: the model's ask$-$bid skew on the spread at
+a long inventory, reversing through the flip.}
+{\emph{Sign-flipping exposure and the policy response}\\
+(notebook: \texttt{stage2\_stage3\_ladder\_and\_frontier}, \S3)}
+
+\textbf{(iii) A closure identity replaces the missing reference.} For the
+policy the value function itself implies, a martingale (Dynkin) identity
+must hold: simulated risk-adjusted P\&L equals the value function plus the
+integrated equation residual along the path. Both sides are estimated on
+the same random numbers; the machinery was first proven on cases with
+exact answers. At the frontier the identity closes to within
+$0.8$--$1.1$ standard errors on 800 paths --- with \emph{no exact
+reference anywhere in sight}.
+
+\section{What this buys a structured desk}
+
+\textbf{Consistency by construction.} One value function generates every
+line's two-sided skew, the fade into limits, unwind urgency, carry
+monetisation, and the hedge policy --- mutually consistent at all times,
+because they are the same object.
+
+\textbf{Auditability.} Equation~\eqref{eq:quote} decomposes every quote
+into an inventory-dependent transfer price plus an optimal margin against
+a fill curve whose two calibration numbers come straight from RFQ logs.
+Model risk can interrogate each piece; the validation ladder above ---
+exact references, negative controls, closure tests --- is itself designed
+as the approval dossier.
+
+\textbf{A concrete extension path.} The prototype's live-Greeks layer is a
+gridded surrogate over $(S,\nu)$ fed by the desk's own pricers --- the
+same pattern lifts directly to structured payoffs (the call spread is the
+minimal stand-in for barrier/autocall vega flips). Per-line limits are
+native. Interfaces for lifecycle events and multi-underlying factor blocks
+are reserved in the codebase; neither is speculatively built.
+
+\textbf{Positioning: decision support first.} The intended deployment is
+assistive --- model quotes and transfer prices surfaced to the trader,
+with post-fill markout monitoring for adverse selection --- not
+fire-and-forget execution.
+
+\section{Prototype scope and limitations}
+
+Stated plainly. All neural trainings above ran at deliberately small
+(laptop-scale) budgets; the identical code runs the full budgets on a
+single data-centre GPU, and no result above is claimed beyond its measured
+scale. The prototype is single-underlying with unit RFQ sizes
+(size-distributed requests are a known extension that weakens the exact
+lattice \emph{reference}, not the method). The hedge layer assumes a
+frictionless continuous hedge; caps and costs break its clean one-number
+decoupling and are flagged as a real extension, not a toggle. Frontier
+Greeks are frozen in time over the short demonstration horizon.
+Residual-based worst-case probes are indicative, not certificates. Client
+tiering and an explicit adverse-selection state are deferred to the pilot,
+where markout monitoring covers the gap empirically.
+
+\section{Proposed pilot}
+
+\begin{enumerate}\itemsep0.2em
+\item \textbf{Calibrate} per-line fill curves $\Lambda_i$ (and request
+  intensities) from the desk's RFQ hit/miss logs, in implied-vol space, by
+  client tier if data permits.
+\item \textbf{Configure} a pilot sub-book (e.g.\ index vanillas plus one
+  structured overlay line), desk limits as the admissible set; rebuild the
+  exact-reference ladder on that spec and run full-budget training.
+\item \textbf{Shadow-quote}: surface model quotes and transfer prices
+  alongside the incumbent; monitor markouts and limit utilisation.
+\item \textbf{Evaluate} head-to-head under common random numbers: realised
+  spread capture vs.\ inventory-risk variance, consistency of skews across
+  lines, behaviour into limits.
+\end{enumerate}
+
+\plotph{Pilot evaluation mock-up: distribution of risk-adjusted P\&L,
+model vs.\ incumbent skew logic, common random numbers.}
+{\emph{Pilot A/B evaluation (to be produced during the pilot)}}
+
+\begin{thebibliography}{9}\small
+\bibitem{as} M.~Avellaneda, S.~Stoikov,
+\emph{High-frequency trading in a limit order book},
+Quantitative Finance 8(3), 2008.
+\bibitem{glt} O.~Gu\'eant, C.-A.~Lehalle, J.~Fernandez-Tapia,
+\emph{Dealing with the inventory risk: a solution to the market making
+problem}, Mathematics and Financial Economics 7(4), 2013.
+\bibitem{cjp} \'A.~Cartea, S.~Jaimungal, J.~Penalva,
+\emph{Algorithmic and High-Frequency Trading},
+Cambridge University Press, 2015.
+\bibitem{bbg} B.~Baldacci, P.~Bergault, O.~Gu\'eant,
+\emph{Algorithmic market making for options}, arXiv:1907.12433.
+\bibitem{pinn} M.~Raissi, P.~Perdikaris, G.E.~Karniadakis,
+\emph{Physics-informed neural networks}, Journal of Computational
+Physics 378, 2019.
+\end{thebibliography}
+
+\end{document}
