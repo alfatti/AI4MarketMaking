@@ -72,3 +72,27 @@ statements, verified as exact lattice facts:
 ## Suite
 
 16/16 (tests/test_spotmm.py + ported test_hamiltonian.py), ~2 min CPU.
+
+## Policy evaluation (notebooks/performance_eval.ipynb; tests/test_evaluate.py)
+
+Regret machinery: freeze any policy's quotes and solve the linear
+backward equation on the same lattice — exact pricing of implementable
+(stride-refreshed) policies. Gates: eta=0 periodic + static policy
+reproduces the analytic value to 0.00e+00; fixed point converges at
+second order in dt (74.5 -> 17.9 EUR under halving, ratio 4.2), giving
+the ~18 EUR discretization floor at nt=200; dominance and baseline
+ordering hold.
+
+Headline (r = 8 refresh, smoke PINN): exact-policy regret 157 EUR (the
+refresh cost — the resolution statement); PINN 3,502 EUR = 98.9% capture
+of the achievable improvement over the static desk and 88.8% over the
+frozen-anchor desk; frozen-anchor 31,166; static 315,343. Regret
+concentrates at face-distance-0 corner states with large opposing
+inventories. Quotes: median 0.085c raw; occupancy-weighted mean 0.123c
+under BOTH the exact-policy and PINN-policy visit distributions (the
+weighting choice resolved by measurement: they coincide). Fill
+distortion 0.7% of lambda; ~1.8 differing fill decisions per episode of
+~32 fills. CRN paired MC regret 4,181 +/- 677 vs lattice 3,344 net:
++1.24 SE agreement.
+
+Suite: 18/18 (~4 min CPU).
