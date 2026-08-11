@@ -1,0 +1,435 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+
+\newcommand{\E}{\mathbb{E}}
+% ---------------------------------------------------------------------------
+% Inserting the real figures: in the executed notebook, either right-click and
+% save the rendered plot, or add  fig.savefig('figN.pdf', bbox_inches='tight')
+% after the corresponding plt.subplots(...) block and re-run that cell.  Then
+% add \usepackage{graphicx} above and replace the \plotph{caption}{source}
+% block with:
+%   \begin{figure}[htbp]\centering
+%   \includegraphics[width=0.92\linewidth]{figN}\caption{caption}\end{figure}
+% Plot ordinals below count rendered figures from the top of each notebook and
+% are stable across re-execution; the section heading + printed plot title are
+% the robust identifiers.
+% ---------------------------------------------------------------------------
+\newcommand{\plotph}[2]{%
+\begin{figure}[htbp]\centering
+\framebox[0.92\linewidth]{\parbox[c][10.5em][c]{0.86\linewidth}{\centering
+\textbf{[Plot placeholder]}\\[0.4em] #2}}
+\caption{#1}
+\end{figure}}
+
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+\title{\vspace{-1.2em}\Large\textbf{The Equation Behind the Quote}\\[0.3em]
+\large Stochastic optimal control for options market making, and how
+physics-informed neural networks make it solvable under realistic desk
+conditions\vspace{-0.4em}}
+\author{\normalsize Prototype summary for the structured equity derivatives desk}
+\date{\normalsize \today}
+
+\begin{document}
+\maketitle
+\vspace{-1.6em}
+
+\section*{Executive summary}
+
+Whenever the desk answers a request for quote, it is implicitly solving an
+optimisation problem: a wider skew earns a better margin but fills less
+often, a fill moves an inventory that carries risk against limits, and the
+right answer therefore depends not only on the instrument being quoted but
+on the entire state of the book and of the market at that moment. Desks
+handle this today through an accumulation of sensible local rules ---
+vol marks, inventory add-ons, per-line overrides --- which, precisely
+because each was designed in isolation, cannot be consistent with one
+another across lines, inventory states, and market conditions. The central
+message of this note is that when one writes the quoting trade-off down
+carefully as a problem in stochastic optimal control, the mathematics
+hands back a single equation --- a partial differential equation of the
+same family as the Black--Scholes equation the desk already lives with ---
+whose solution generates \emph{every} quote, on every line, on both sides,
+at every inventory level, from one internally consistent object.
+
+The reason this observation has remained largely academic is not that the
+equation is exotic but that, for a realistic book, it is
+high-dimensional: it carries one coordinate per position line on top of
+time, spot, and volatility, and the classical numerical methods that
+solve such equations by laying down a grid see their cost multiply with
+every added line until the computation becomes impossible. The second
+message of this note is that this particular obstacle has recently become
+tractable. A class of solvers known as \emph{physics-informed neural
+networks} --- explained from first principles in
+Section~\ref{sec:pinn}, since the name is more intimidating than the
+idea --- replaces the grid with a trained function, and in doing so
+sidesteps exactly the cost explosion that ruled the approach out. We have
+built a working prototype that solves the quoting equation for a small
+option book under genuinely desk-like conditions --- per-line position
+limits, and Greeks that move with spot and can flip sign, as they do
+around barriers and autocall triggers --- and we propose a contained
+pilot in which the same machinery is calibrated to the desk's own RFQ
+history and run in shadow mode alongside the incumbent quoting logic.
+
+\section{The quoting decision, as the desk lives it}
+
+Consider what actually happens when a client request arrives for some
+line $i$ in size $z_i$. The trader must choose a skew $\delta$ around the
+model mid, knowing three things at once. First, the client's willingness
+to trade falls away as the quote worsens, so that the probability of a
+fill is some decreasing curve $\Lambda_i(\delta)$ of the skew --- a curve
+which, importantly, is not a matter of theory but of measurement, since
+the desk's own hit-and-miss history contains it. Second, a fill changes
+the inventory, and inventory is not free: it consumes limit capacity, it
+exposes the book to the market factors the desk cannot or does not hedge,
+and, when the desk's real-world view of volatility differs from the
+pricing measure, it also carries an expected drift, favourable or not.
+Third, and most subtly, the value of taking on a given risk depends on
+what the book already holds, which means that the correct skew on line
+$i$ depends on the positions in every other line --- a dependence that
+per-line rules, by construction, cannot express.
+
+The control formulation takes these three ingredients exactly as stated
+and asks for the quoting policy that maximises the risk-adjusted expected
+profit over a trading horizon,
+\begin{equation}
+\sup_{\delta}\;\E\!\int_0^T\!\Big[\;
+\underbrace{\textstyle\sum_{i,\pm} z_i\,\delta_i^{\pm}\,
+\Lambda_i(\delta_i^{\pm})}_{\text{expected spread capture}}
+\;+\;\underbrace{c(t,S,\nu)^{\!\top} q}_{\text{inventory carry}}
+\;-\;\underbrace{\tfrac{\gamma}{2}\,
+q^{\top}\Sigma(t,S,\nu)\,q}_{\text{inventory risk penalty}}
+\;\Big]\,dt ,
+\label{eq:obj}
+\end{equation}
+where $q$ is the vector of positions, one coordinate per line, the
+penalty matrix $\Sigma$ encodes the residual risk of holding them, and
+the supremum runs over all admissible quoting policies, with the desk's
+position limits defining what admissible means. Nothing in this
+expression is a modelling flourish; each term is a quantity the desk
+already reasons about, merely written in one place.
+
+\section{Where the partial differential equation appears}
+\label{sec:pde}
+
+The step from the objective~\eqref{eq:obj} to an equation is the dynamic
+programming principle, and it is worth walking through slowly because it
+is where the entire method acquires its structure. Define the value
+function $v(t,S,\nu,q)$ to be the best risk-adjusted profit still
+achievable between the present moment and the horizon, given the current
+time, the current spot and volatility, and the current inventory vector.
+Over the next instant, three things can happen to this value. Time
+passes and the market state diffuses, which contributes the familiar
+second-order terms --- in fact precisely the same diffusion operator,
+call it $\mathcal L_{S,\nu}$, that drives the Black--Scholes and Heston
+pricing equations the desk uses every day. The book accrues its running
+carry and pays its running risk penalty on the inventory it currently
+holds. And, with some intensity, a request arrives on one of the lines,
+the desk quotes optimally against that client's fill curve, and if the
+quote fills the inventory jumps by one trade. Requiring that these three
+effects balance --- which is all the dynamic programming principle says
+--- produces the Hamilton--Jacobi--Bellman equation
+\begin{equation}
+0 \;=\; \frac{\partial v}{\partial t}
+\;+\;\mathcal L_{S,\nu}\,v
+\;+\;c^{\!\top}q\;-\;\tfrac{\gamma}{2}\,q^{\top}\Sigma\,q
+\;+\;\sum_{i,\pm}\;
+\mathbf 1_{\{\text{limits}\}}\,
+\sup_{\delta}\;\Lambda_i(\delta)\Big[\,z_i\,\delta
+-\big(v(t,S,\nu,q)-v(t,S,\nu,q\mp z_i e_i)\big)\Big],
+\label{eq:hjb}
+\end{equation}
+with the terminal condition that $v$ vanishes at the horizon. This is
+the equation behind the quote. It is a partial differential equation in
+the honest sense --- the unknown is a \emph{function} of time, spot,
+volatility, and every inventory coordinate simultaneously --- and its
+diffusion part is machinery the desk already trusts, while the genuinely
+new ingredients are the inventory coordinates and the final sum, in
+which each term is nothing other than the quote optimisation itself,
+embedded inside the equation.
+
+The reward for solving it is considerable, because once $v$ is known the
+optimal quote on any line, on either side, in any state, is read off
+pointwise: writing $p_i$ for the value difference per contract,
+\begin{equation}
+p_i \;=\; \frac{v(t,S,\nu,q)-v(t,S,\nu,q\mp z_i e_i)}{z_i},
+\qquad
+\delta_i^{*}\;=\;\arg\max_{\delta}\ \Lambda_i(\delta)\,(\delta-p_i),
+\label{eq:quote}
+\end{equation}
+every quote decomposes into an inventory-dependent \emph{internal
+transfer price} $p_i$ --- what this marginal risk is worth to this
+particular book in this particular state --- plus an optimal margin
+charged against the client's measured fill curve. This decomposition is
+what makes the approach auditable rather than a black box: a trader or a
+model-risk reviewer can inspect the two pieces separately, and both trace
+back to parameters with direct empirical meaning.
+
+A concrete and well-studied instance of this formulation, which we adopt
+as our worked example, is the single-underlying option market-making
+model of Baldacci, Bergault and Gu\'eant~\cite{bbg}: one stock with
+Heston stochastic volatility, a book of listed calls that is
+delta-hedged continuously so that vega remains as the residual risk, and
+logistic fill curves calibrated in implied-volatility space so that a
+quote at mid fills roughly a third of the time while a quote one vol
+point through mid fills about seventy percent of the time --- two
+anchors that a desk can estimate directly from its logs. The
+formulation even repays the effort with structural insights of its own;
+to give one example that we verified in simulation, the entire choice of
+delta-hedging style, from plain delta-neutral to the minimum-variance
+smile-adjusted delta, enters the quoting problem through nothing more
+than a single scalar multiplier on the vega penalty, so that a debate the
+desk might conduct at length collapses, within this framework, to one
+coefficient.
+
+To make their stylised case solvable with classical numerics, the
+authors of~\cite{bbg} introduce two simplifying assumptions: the Greeks
+of every line are frozen at their inception values, and the desk's risk
+limit is a single band on the \emph{aggregate} vega of the book rather
+than a limit per line. Under precisely those two assumptions the
+inventory vector matters only through one number, the whole equation
+collapses to three dimensions, and a conventional grid solver handles it
+comfortably. The purpose of this note begins where those assumptions
+end.
+
+\section{Why realistic conditions defeat classical solvers}
+
+Neither simplification survives contact with a real desk, and it is
+worth being precise about what breaks, because the two failures are of
+different kinds.
+
+The first assumption to fall is the aggregate risk band, because actual
+mandates impose position limits line by line, and the moment the
+admissible set is a box rather than a band, the value of the book
+genuinely ceases to be a function of its net Greek alone: two inventories
+with identical net vega but different gross compositions sit at
+different distances from different limits, face different feasible
+unwinding paths, and are therefore worth different amounts. There is no
+smaller equation hiding inside the problem; the inventory vector must be
+carried whole, one coordinate per line.
+
+The second assumption to fall is the frozen Greek, because a structured
+book's vega moves with spot and volatility and, in the neighbourhood of
+barriers and autocall triggers, changes sign --- so that the very
+direction in which a new trade adds or reduces risk depends on where the
+market is. In our prototype the minimal laboratory instance of this
+behaviour is a tight call spread, long vega below its strikes and short
+vega above, with the flip sitting inside a normal day's trading range;
+any quoting logic keyed to a risk snapshot taken this morning will skew
+in the wrong direction on the far side of that flip. Carrying live
+Greeks means carrying spot itself as a state variable of the equation.
+
+Put the two together and count coordinates: time, spot, volatility, and
+one inventory dimension for every line the desk quotes. A classical
+finite-difference solver must lay a grid over that entire space and
+visit every node at every time step, so that its cost multiplies by the
+grid width with each line added; a book of even seven or eight lines
+already lies far beyond reach, and a structured book is out of the
+question. This, and only this, is what kept the control formulation in
+the academic literature: not any doubt about the equation, but the
+absence of a way to solve it at realistic dimension.
+
+\section{What a physics-informed neural network is}
+\label{sec:pinn}
+
+Since the term will be unfamiliar, it is worth building the idea up from
+nothing, because the idea itself is simple. A neural network, stripped
+of its mystique, is a flexible formula: a function $v_\theta(t,S,\nu,q)$
+built from a few layers of elementary operations, whose many internal
+parameters $\theta$ can be tuned until the formula behaves in whatever
+way one requires. In the familiar applications of machine learning the
+tuning target is data --- one shows the network examples of inputs and
+correct outputs and adjusts the parameters until it reproduces them. A
+\emph{physics-informed} neural network uses the same flexible formula
+and the same tuning machinery, but replaces the data with an
+\emph{equation}: since we know that the true value function satisfies
+the HJB equation~\eqref{eq:hjb} at every point of the state space, we
+can take the candidate formula $v_\theta$, substitute it into the
+left-hand side of the equation at any state we please, and read off a
+number --- the \emph{residual} --- that measures how badly the candidate
+fails to be a solution at that point. Training then consists of sampling
+states at random --- a time, a spot, a volatility, an inventory vector
+--- evaluating the residual at each, and nudging the parameters to drive
+the average squared residual toward zero, over and over, until the
+formula satisfies the equation essentially everywhere it is asked. The
+derivatives that the equation requires are not approximated by finite
+differences but computed exactly from the formula itself by automatic
+differentiation, the same mechanism that produces Greeks from modern
+pricing libraries; and the terminal condition is built into the
+architecture of the formula, so it holds by construction rather than by
+training.
+
+The decisive property of this procedure, for our purposes, is what it
+does \emph{not} require: at no point is a grid ever constructed. The
+network is trained by sampling points, not by enumerating them, and a
+point in twelve dimensions is exactly as cheap to sample as a point in
+three; the cost of the method therefore grows with the genuine
+complexity of the value function being represented rather than with the
+volume of the space it lives in, which is precisely the exchange one
+needs in order to escape the dimensional explosion of
+the previous section. Two further properties matter operationally. Once
+trained, the network is just a formula, so evaluating a full set of
+quotes for the entire book at the current state --- via
+equation~\eqref{eq:quote} --- takes a fraction of a millisecond, which
+is compatible with quoting latency in a way that no on-the-fly
+computation could be. And because the object produced is the value
+function itself rather than a table of quotes, everything the
+formulation promises --- transfer prices, limit-aware fading, unwinding
+urgency --- is available from the same trained object without further
+work.
+
+\section{The prototype: solving the realistic case}
+
+We applied this solver to the quoting equation with \emph{both}
+simplifying assumptions removed, on a deliberately small but
+structurally honest book: three vanilla calls together with the tight
+call spread described above, per-line position limits defining the
+admissible inventory box, live Greeks supplied to the equation from a
+gridded surrogate over spot and volatility fed by the same Heston pricer
+throughout, and a trading horizon long enough that spot genuinely
+traverses the spread's sign flip. The state of the equation is
+therefore time, spot, volatility, and four inventory coordinates; the
+network was given the raw state and nothing else --- in particular, no
+aggregate-risk feature and no hint of the book's geometry --- and was
+trained purely on the residual of equation~\eqref{eq:hjb}.
+
+The trained object behaves the way the desk would want it to. Its quotes
+respond to inventory in the correct direction on every line and fade
+coherently as positions approach their limits, since the transfer price
+in~\eqref{eq:quote} inherits the limit geometry directly from the
+equation. Most tellingly, at an inventory long of the call spread, the
+model's skew on that line \emph{reverses} as spot crosses the vega flip:
+below the flip the book's spread position adds vega and the model quotes
+to shed it, above the flip the same position reduces vega and the
+quoting pressure changes sign --- exactly the behaviour that no
+snapshot-based rule can produce, delivered here as an automatic
+consequence of carrying spot inside the equation. As to whether the
+answers can be trusted, we verified the solver in two complementary
+ways, which we state briefly: when the two textbook simplifications are
+quietly restored, the network reproduces the classically computable
+solution --- at the level of the quotes themselves, to hundredths of a
+cent --- and shows no spurious dependence on spot despite having spot as
+an input; and in the realistic configuration, where no classical
+benchmark exists at any book size, a martingale-based consistency check
+--- simulating the book under the model's own policy and comparing the
+realised risk-adjusted profit with the model's valuation --- closes to
+within one standard error.
+
+\plotph{Model bid and ask skews for a representative line across the
+inventory range, showing the consistent inventory response and the
+refusal to quote the breaching side at the position limit.}
+{\emph{Grab from:} \texttt{stage2\_stage3\_ladder\_and\_frontier.ipynb},
+Section~2, the code cell directly under the heading ``\emph{Quote-level
+check vs the exact lattice}'' --- single-panel figure titled
+``stage-2 quotes vs exact lattice'' (3rd plot of the notebook; x-axis
+$n_1$, lattice lines + PINN markers; quotes end where the box limit
+blocks the side).\\[0.3em]
+\emph{Alternative (aggregate-band variant):}
+\texttt{stage1\_pinn\_train\_and\_analysis.ipynb}, Section~4d, the
+two-panel figure with titles ``K=10, T=1.0''\,/\,``K=12, T=1.0''
+(5th plot of that notebook).}
+
+\plotph{Left: the call spread's vega across spot, changing sign inside
+the trading band. Right: the model's quote skew on the \emph{vanilla}
+lines at a long-spread inventory, reversing as spot crosses the flip ---
+holding the flip instrument, the desk sheds it on both sides; what
+reverses is the direction of delta being shed, and therefore the quoting
+of everything else on the book.}
+{\emph{Grab from:} \texttt{stage2\_stage3\_ladder\_and\_frontier.ipynb},
+Section~3. \emph{Left panel:} the first stage-3 code cell's figure,
+titled ``live Greeks: the spread vega flips sign in the traded band''
+(4th plot of the notebook; for the handout, keeping only the bold spread
+line is cleanest). \emph{Right panel:} the notebook's 3b cell currently plots the
+\emph{spread's own} skew, which does not reverse (you shed what you
+hold on both sides of the flip); change one line in that cell --- plot
+channels $1$ and $5$ (the ATM call) instead of $3$ and $7$ at the
+long-spread inventory --- to produce the correct reversing quantity.
+The exact-lattice verification of this corrected statement, with the
+crossing at the flip in both BS and local-vol models, ships in the
+companion \texttt{spotmm} repository (notebook
+\texttt{spotmm\_full\_problem}, \S3).}
+
+\section{What the desk gains}
+
+The practical case for the approach rests on four properties that follow
+from its construction rather than from tuning. The first is consistency:
+because every quote on every line is generated from one value function,
+the skews, the limit behaviour, the unwinding pressure and the carry
+monetisation cannot contradict one another, in exactly the way that a
+stack of independently maintained rules eventually must. The second is
+auditability: the decomposition~\eqref{eq:quote} of each quote into a
+transfer price and a margin gives trading and model risk two separately
+inspectable quantities, and every parameter feeding them --- the fill
+curves, the request intensities, the risk penalty --- has a direct
+empirical counterpart, with the fill curves in particular calibratable
+from the desk's own RFQ hit-and-miss history rather than from any
+theoretical assumption. The third is extensibility: the prototype's
+live-Greek layer is simply a surrogate over spot and volatility fed by a
+pricer, and the identical pattern accepts the desk's own structured
+pricers, so that the call spread of the prototype is the minimal
+stand-in for the barrier and autocall vega profiles the desk actually
+runs. The fourth is deployability: the intended mode of operation is
+decision support --- model quotes and transfer prices surfaced alongside
+the trader's own judgement, with post-fill markout monitoring for
+adverse selection --- rather than autonomous execution, so that the
+system earns trust in the same way a junior trader would.
+
+\section{Scope, limitations, and a proposed pilot}
+
+In the interest of a fair pitch, the current prototype should be
+described exactly as it is. It runs on a single underlying with
+unit-size requests; its neural trainings were performed at deliberately
+modest computational budgets, with the identical code scaling to full
+budgets on a single data-centre GPU; the hedge is assumed frictionless
+and continuous, and introducing hedge costs or caps is a genuine
+extension rather than a switch; and the Greeks, while fully spot- and
+vol-dependent, are held fixed in time over the short demonstration
+horizon. None of these is a limitation of the formulation --- each is a
+boundary of what has so far been built and tested, drawn deliberately so
+that every claim above corresponds to something that was actually run.
+
+The natural next step is a contained pilot on the desk's own terms.
+First, calibrate the per-line fill curves and request intensities from
+the desk's RFQ logs, in implied-volatility space and by client tier if
+the data supports it, since these curves are the empirical heart of the
+model. Second, configure a pilot sub-book --- for instance a set of
+index vanillas together with one structured overlay line --- with the
+desk's actual limits as the admissible set, and train the solver at full
+budget on that configuration. Third, run in shadow: surface the model's
+quotes and transfer prices alongside the incumbent logic, and monitor
+markouts and limit utilisation. Fourth, evaluate head to head under
+common random scenarios, comparing realised spread capture against
+inventory-risk variance, the coherence of skews across lines, and
+behaviour as limits are approached. Each step produces something of
+standalone value --- the calibrated fill curves alone are informative
+about the franchise --- and no step commits the desk beyond the one
+before it.
+
+\plotph{Pilot evaluation mock-up: distribution of risk-adjusted P\&L,
+model versus incumbent skew logic, under common random scenarios.}
+{\emph{To be produced during the pilot} --- no notebook source exists
+yet. \emph{Stand-in, if one is wanted for the handout:} the repository
+simulator already produces this style of comparison; run
+\texttt{sim/lockstep.simulate\_atoms} under two quote-table sets on
+common random numbers (the optimal vs.\ perturbed-policy construction of
+\texttt{tests/test\_corrector.py}) and histogram the two per-path
+risk-adjusted reward vectors side by side.}
+
+\begin{thebibliography}{9}\small
+\bibitem{as} M.~Avellaneda, S.~Stoikov,
+\emph{High-frequency trading in a limit order book},
+Quantitative Finance 8(3), 2008.
+\bibitem{gueant} O.~Gu\'eant,
+\emph{The Financial Mathematics of Market Liquidity: From Optimal
+Execution to Market Making}, Chapman \& Hall/CRC, 2016.
+\bibitem{bbg} B.~Baldacci, P.~Bergault, O.~Gu\'eant,
+\emph{Algorithmic market making for options}, arXiv:1907.12433.
+\bibitem{pinn} M.~Raissi, P.~Perdikaris, G.E.~Karniadakis,
+\emph{Physics-informed neural networks: A deep learning framework for
+solving forward and inverse problems involving nonlinear partial
+differential equations}, Journal of Computational Physics 378, 2019.
+\end{thebibliography}
+
+\end{document}
