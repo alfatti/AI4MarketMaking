@@ -27,10 +27,12 @@ src/spotmm/
   instruments/ spot_instruments (BS closed forms, CEV Crank-Nicolson,
                DeltaGrid live-Greeks, book with butterfly)
   solvers/     lattice ((t,S,n) exact reference; periodic anchor mode),
-               pinn (model/residual/trainer + reduced1d frozen fixture)
+               pinn (model/residual/trainer + reduced1d frozen fixture),
+               evaluate (exact policy pricing: regret vs the optimum,
+               static and frozen-anchor baselines)
   sim/         lockstep (value identity, eta-parabola, q^S reporting,
                Dynkin accumulator)
-tests/         16 tests, ~2 min CPU; numbers in docs/VALIDATION.md
+tests/         18 tests, ~4 min CPU; numbers in docs/VALIDATION.md
 checkpoints/   lattice_bs / lattice_lv caches, pinn_bs smoke checkpoint
 ```
 
