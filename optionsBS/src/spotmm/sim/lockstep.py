@@ -33,6 +33,7 @@ class SimResult:
     fills: jnp.ndarray
     qS_final: jnp.ndarray           # hedge position at T (eta = eta_hedge)
     qS_turnover: jnp.ndarray
+    occupancy: Optional[jnp.ndarray] = None   # (n_S, M) visit counts
 
 
 def simulate(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
@@ -40,7 +41,8 @@ def simulate(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
              eta: float = 1.0, eta_list: Sequence[float] = (1.0,),
              eta_hedge: float = 1.0, n_steps: int = 1200,
              n_paths: int = 10000, seed: int = 0, delta_inf: float = -5.0,
-             res_fn=None, res_stride: int = 4):
+             res_fn=None, res_stride: int = 4,
+             count_occupancy: bool = False):
     """res_fn(t, S, n) -> HJB residual (batched by vmap here) enables the
     Dynkin accumulator for PINN closure; None disables it."""
     assert lat.v_hist is not None, "lattice solved with store_stride"
@@ -72,7 +74,7 @@ def simulate(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
                        ).astype(jnp.int32)
 
     def step(carry, k):
-        S, n, reward, M, corr, fills, qS_prev, turn, key = carry
+        S, n, reward, M, corr, fills, qS_prev, turn, occ, key = carry
         t = k * dt
         key, k1, k2 = jax.random.split(key, 3)
         k_slice = jnp.argmin(jnp.abs(t_hist - t))
@@ -83,6 +85,8 @@ def simulate(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
         n_tgt = n[:, None, :] + shifts[None]
         idx_t = flat_of(n_tgt.reshape(-1, N)).reshape(-1, n_ch)
         adm = jnp.all(jnp.abs(n_tgt) <= nbar[None, None, :] + 1e-9, axis=-1)
+        if count_occupancy:
+            occ = occ.at[iS, idx].add(1.0)
         v0 = (1 - a) * v[iS, idx] + a * v[iS + 1, idx]
         vt = (1 - a)[:, None] * v[iS[:, None], idx_t] \
             + a[:, None] * v[iS[:, None] + 1, idx_t]
@@ -111,14 +115,16 @@ def simulate(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
         n = n + jnp.sum(jnp.where(fill[:, :, None], shifts[None], 0.0), axis=1)
         S = S * jnp.exp((market.mu - 0.5 * sig * sig) * dt + sig * dW)
         fills = fills + jnp.sum(fill, axis=1).astype(jnp.int32)
-        return (S, n, reward, M, corr, fills, qS, turn, key), None
+        return (S, n, reward, M, corr, fills, qS, turn, occ, key), None
 
     P = n_paths
+    occ0 = jnp.zeros((nS, lat.n_pts.shape[0]))
     init = (jnp.full((P,), market.S0), jnp.zeros((P, N)), jnp.zeros(P),
             jnp.zeros((etas.shape[0], P)), jnp.zeros(P),
             jnp.zeros(P, dtype=jnp.int32), jnp.zeros(P), jnp.zeros(P),
-            jax.random.PRNGKey(seed))
-    (S, n, reward, M, corr, fills, qS, turn, _), _ = jax.lax.scan(
+            occ0, jax.random.PRNGKey(seed))
+    (S, n, reward, M, corr, fills, qS, turn, occ, _), _ = jax.lax.scan(
         step, init, jnp.arange(n_steps))
     return SimResult(reward=reward, M=M, corr=corr if use_corr else None,
-                     fills=fills, qS_final=qS, qS_turnover=turn)
+                     fills=fills, qS_final=qS, qS_turnover=turn,
+                     occupancy=occ if count_occupancy else None)
