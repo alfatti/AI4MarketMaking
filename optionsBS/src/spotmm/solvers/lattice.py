@@ -49,10 +49,7 @@ class LatticeSolution:
 
     def quotes(self, v: Optional[jnp.ndarray] = None, delta_inf=-5.0):
         v = self.v0 if v is None else v
-        ch = self.channels
-        v_nb = v[:, self.nb_idx]
-        p = jnp.moveaxis((v[:, None, :] - v_nb) / ch.z[None, :, None], 1, 0)
-        d = _bc(ch.intensity, 2).argmax_delta(p, delta_inf)
+        d = quotes_from_vtable(v, self.nb_idx, self.channels, delta_inf)
         return jnp.where(self.adm_tgt[:, None, :], d, jnp.nan)
 
 
@@ -63,25 +60,14 @@ def _enumerate(nbar: np.ndarray):
     return n_pts, {tuple(int(x) for x in r): i for i, r in enumerate(n_pts)}
 
 
-def analytic_eta0_value(book: SpotBook, T: float, t=0.0, delta_inf=-5.0):
-    """eta = 0, no limits: v = (T - t) * sum_ch z_ch H_ch(0)."""
-    ch = Channels.from_book(book)
-    H0 = ch.intensity.H(jnp.zeros_like(ch.z), delta_inf)
-    return (T - t) * float(jnp.sum(ch.z * H0))
-
-
-def solve_lattice(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
-                  gamma: float, box: Box, T: float, eta: float = 1.0,
-                  nt: int = 200, n_S: int = 41, S_band: float = 0.08,
-                  delta_inf: float = -5.0, store_stride: Optional[int] = None,
-                  periodic: bool = False) -> LatticeSolution:
-    ch = Channels.from_book(book)
+def _build_neighbors(book: SpotBook, box: Box, periodic: bool):
+    """Enumeration + per-channel neighbor indices and admissibility.
+    Shared by solve_lattice and evaluate_policy (moved verbatim)."""
     N = book.n_options
     nbar = np.asarray(box.nbar, dtype=int) + (0 if periodic else 1)
     n_pts, flat_index = _enumerate(nbar)
     M = n_pts.shape[0]
     dims = 2 * nbar + 1
-
     psi = np.concatenate([np.ones(N), -np.ones(N)])
     inst = np.concatenate([np.arange(N), np.arange(N)])
     nb_idx = np.full((2 * N, M), -1, dtype=np.int32)
@@ -103,6 +89,32 @@ def solve_lattice(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
                 nb_idx[c_i, m] = flat_index[tuple(int(x) for x in tgt[m])]
         adm_tgt[c_i] = inside & adm
     assert not np.any(adm_tgt & (nb_idx < 0))
+    return n_pts, flat_index, nb_idx, adm_tgt
+
+
+def quotes_from_vtable(v, nb_idx, ch: Channels, delta_inf=-5.0):
+    """Greedy quotes (n_ch, n_S, M) from a value table v (n_S, M)."""
+    v_nb = v[:, nb_idx]
+    p = jnp.moveaxis((v[:, None, :] - v_nb) / ch.z[None, :, None], 1, 0)
+    return _bc(ch.intensity, 2).argmax_delta(p, delta_inf)
+
+
+def analytic_eta0_value(book: SpotBook, T: float, t=0.0, delta_inf=-5.0):
+    """eta = 0, no limits: v = (T - t) * sum_ch z_ch H_ch(0)."""
+    ch = Channels.from_book(book)
+    H0 = ch.intensity.H(jnp.zeros_like(ch.z), delta_inf)
+    return (T - t) * float(jnp.sum(ch.z * H0))
+
+
+def solve_lattice(book: SpotBook, dgrid: DeltaGrid, market: SpotMarket,
+                  gamma: float, box: Box, T: float, eta: float = 1.0,
+                  nt: int = 200, n_S: int = 41, S_band: float = 0.08,
+                  delta_inf: float = -5.0, store_stride: Optional[int] = None,
+                  periodic: bool = False) -> LatticeSolution:
+    ch = Channels.from_book(book)
+    N = book.n_options
+    n_pts, flat_index, nb_idx, adm_tgt = _build_neighbors(book, box, periodic)
+    M = n_pts.shape[0]
 
     S = jnp.linspace(market.S0 * (1 - S_band), market.S0 * (1 + S_band), n_S)
     dS = float(S[1] - S[0])
